@@ -106,21 +106,32 @@ def make_background_clips(prompts: list[str], outdir: str, clip_duration: float 
         return i, generate_image(prompts[i], imgs[i], width, height)
 
     got = {}
-    with ThreadPoolExecutor(max_workers=min(6, len(prompts) or 1)) as ex:
+    with ThreadPoolExecutor(max_workers=min(4, len(prompts) or 1)) as ex:
         for i, ok in ex.map(_gen, range(len(prompts))):
             got[i] = ok
 
+    good_idx = [i for i in range(len(prompts)) if got.get(i)]
     clips = []
     for i in range(len(prompts)):
         clip = os.path.join(outdir, f"bg_{i:02d}.mp4")
+        # Prefer this clip's own image; if it failed, reuse another successful
+        # cinematic image from the same video (with different motion) rather than
+        # dropping to a flat gradient. Gradient only if every image failed.
         if got.get(i):
+            src = imgs[i]
+        elif good_idx:
+            src = imgs[good_idx[i % len(good_idx)]]
+            logger.info(f"clip {i}: image failed, reusing cinematic image {os.path.basename(src)}")
+        else:
+            src = None
+        if src:
             try:
-                ken_burns_clip(imgs[i], clip, clip_duration, width, height, directions[i % 4])
+                ken_burns_clip(src, clip, clip_duration, width, height, directions[i % 4])
             except subprocess.CalledProcessError as e:
                 logger.warning(f"ken burns failed for clip {i}, using gradient: {e}")
                 _gradient_fallback(clip, clip_duration, width, height)
         else:
-            logger.warning(f"image gen failed for prompt {i}, using gradient fallback")
+            logger.warning(f"all images failed for this video, clip {i} -> gradient fallback")
             _gradient_fallback(clip, clip_duration, width, height)
         clips.append(clip)
     return clips
