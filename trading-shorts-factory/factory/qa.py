@@ -29,9 +29,11 @@ def contact_sheet(video_path: str, out_path: str, n: int = 6, cols: int = 6) -> 
         subprocess.run(["ffmpeg", "-y", "-v", "error", "-ss", f"{t:.2f}", "-i", video_path,
                         "-frames:v", "1", "-vf", "scale=270:480", fp], check=True)
         frames.append(fp)
-    rows = (n + cols - 1) // cols
+    # Combine the N separate frame images side by side. `tile` only works on
+    # consecutive frames of ONE input, so use hstack across the N inputs.
+    labels = "".join(f"[{i}:v]" for i in range(len(frames)))
     subprocess.run(["ffmpeg", "-y", "-v", "error", *sum([["-i", f] for f in frames], []),
-                    "-filter_complex", f"tile={cols}x{rows}", out_path], check=True)
+                    "-filter_complex", f"{labels}hstack=inputs={len(frames)}", out_path], check=True)
     for f in frames:
         os.remove(f)
     os.rmdir(tmpdir)

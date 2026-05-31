@@ -190,11 +190,8 @@ def package(spec: VideoSpec, script: str, vdir: str, final_path: str) -> None:
     """Write review-ready posting assets (caption + metadata) next to the video."""
     tags = " ".join(spec.hashtags) if spec.hashtags else "#trading #investing #stocks #fintok"
     yt_title = (spec.title or spec.subject)[:95]
-    caption = (
-        f"{spec.hook or spec.subject}\n\n"
-        f"{script}\n\n"
-        f"⚠️ {DISCLAIMER}\n\n{tags}"
-    )
+    # The script already opens with the hook verbatim, so don't repeat it.
+    caption = f"{script}\n\n⚠️ {DISCLAIMER}\n\n{tags}"
     with open(os.path.join(vdir, "caption.txt"), "w") as f:
         f.write(caption)
     meta = {
