@@ -40,12 +40,17 @@ Completed audio is reused on re-run (**idempotent resume**). A per-video
 | File | Purpose |
 |---|---|
 | `factory/factory.py` | Orchestrator: `produce_video`, `run_batch`, gates, packaging |
-| `factory/footage.py` | Keyless footage: Pollinations AI images + Ken Burns (parallel image gen) |
+| `factory/footage.py` | Keyless footage: Pollinations AI images + Ken Burns (parallel; reuses a good image instead of a flat gradient on failure) |
+| `factory/topics.py` | Autonomous topic generator (keyless): invents fresh validated specs |
+| `factory/autoloop.py` | **Perpetual engine**: invent → render → dedupe-registry → cumulative posting pack → sleep → repeat |
 | `factory/qa.py` | Builds a QA review packet (frame contact-sheet + summary) per video |
-| `factory/plan.json` | 12 ready-to-render video specs |
-| `factory/run_loop.sh` | Continuous production loop |
+| `factory/posting_pack.py` | Consolidates a batch into one ready-to-post `POSTING_PACK.md` |
+| `factory/plan.json` | 12 ready-to-render seed specs |
+| `factory/run_loop.sh` | Launches the perpetual engine |
 | `storage/research/trend_research.md` | The trend/monetization research report |
 | `storage/factory_out/<id>/` | Per-video output: `final.mp4`, `caption.txt`, `metadata.json`, `manifest.json` |
+| `storage/factory_out/produced_registry.json` | Dedupe registry of everything produced |
+| `storage/factory_out/POSTING_PACK.md` | Cumulative, ready-to-post doc for the whole library |
 
 ## Setup (fresh machine)
 
@@ -69,15 +74,23 @@ python -c "import certifi,shutil,ssl; shutil.copy('/etc/ssl/certs/ca-certificate
 ## Run
 
 ```bash
-# one batch (uses factory/plan.json)
+# PERPETUAL LOOP — invent + render fresh videos forever into a review queue
+# args: n_per_cycle  out_dir  sleep_seconds  max_cycles(0=forever)
+./factory/run_loop.sh 3 storage/factory_out 1800 0
+
+# one fixed batch from a plan
 PYTHONPATH=. .venv/bin/python -m factory.factory factory/plan.json storage/factory_out
 
-# a single video, programmatically
-PYTHONPATH=. .venv/bin/python -c "import json; from factory.factory import *; produce_video(VideoSpec(**json.load(open('factory/plan.json'))[0]), 'storage/factory_out')"
-
-# continuous loop (plan, out, sleep_seconds, max_cycles=0=forever)
-./factory/run_loop.sh factory/plan.json storage/factory_out 1800 0
+# just invent topics (prints JSON specs, renders nothing)
+PYTHONPATH=. .venv/bin/python -m factory.topics 5
 ```
+
+### How the perpetual loop stays fresh & safe
+- **Dedupe:** every produced title is recorded in `produced_registry.json`; each cycle's topic prompt is told to avoid them.
+- **Validation:** specs are schema/word-count checked before rendering; each render passes resolution/stream/duration gates.
+- **Compliance:** the topic prompt forbids buy/sell calls, signals, and guaranteed-return claims; packaging always appends the *not financial advice* disclaimer.
+- **Crash-safe:** the registry is saved after every video, so Ctrl-C or a restart resumes cleanly.
+- **Review queue:** nothing posts automatically — `POSTING_PACK.md` grows into your to-review list.
 
 ## Publishing (you stay in control)
 
