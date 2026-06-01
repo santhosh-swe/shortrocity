@@ -59,31 +59,61 @@ def _valid(spec: dict) -> bool:
     return 45 <= len(str(spec.get("script", "")).split()) <= 115
 
 
+def _write_script(hook: str, subject: str) -> str | None:
+    """Dedicated script call. Producing the script separately (not inside the
+    metadata JSON) yields markedly cleaner copy — the model isn't splitting
+    attention across 7 JSON fields."""
+    prompt = (
+        f"Write a voiceover script for a 25-35 second vertical short video about: {subject}.\n"
+        f"Start with this EXACT first line: \"{hook}\"\n"
+        "Then 70-95 words total. Short punchy sentences. One concrete number or example. "
+        "End with \"Follow for more\" or \"Save this\". Plain spoken English, no markdown, no emojis, "
+        "no stage directions. Education only: NO buy/sell calls, signals, guaranteed returns, or "
+        "get-rich-quick claims. Output only the script text."
+    )
+    try:
+        txt = llm._generate_response(prompt)
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"script LLM error: {str(e)[:120]}")
+        return None
+    if not isinstance(txt, str) or txt.startswith("Error"):
+        return None
+    txt = txt.strip().strip('"')
+    return txt if 45 <= len(txt.split()) <= 130 else None
+
+
 def _generate_one(avoid_list, niches) -> dict | None:
     niche = random.choice(niches)
     angle = random.choice(ANGLES)
-    prompt = f"""Create ONE short-form video idea for Instagram Reels / YouTube Shorts in the niche "{niche}", built around {angle}.
+    # Stage 1: metadata only (no script) -> small, reliable JSON.
+    meta_prompt = f"""Create ONE short-form video idea for Instagram Reels / YouTube Shorts in the niche "{niche}", built around {angle}.
 
-Return ONLY a single JSON object (no prose, no array) with these exact keys:
+Return ONLY a single JSON object (no prose, no array, no script field) with these exact keys:
 - "subject": one-line topic
 - "niche": "{niche}"
 - "title": YouTube title <=80 chars, punchy
-- "hook": spoken first line <=14 words; lead with a SPECIFIC number or dollar amount
-- "script": full voiceover, 70-95 words, starts with the hook verbatim, short punchy sentences, one concrete number/example, ends with "Follow for more" or "Save this". Plain spoken English, no markdown/emojis. Education only: NO buy/sell calls, signals, guaranteed returns, or get-rich-quick.
+- "hook": spoken first line <=14 words; lead with a SPECIFIC number or dollar amount; education only (no buy/sell/guarantees)
 - "footage_prompts": array of 5 cinematic AI-image prompts (scene/lighting/mood, vertical 9:16, NO readable text/words/labels in the image)
 - "hashtags": array of 8-12 strings each starting with "#"
 
 Make it DISTINCT from these existing titles: {avoid_list}
 Output the JSON object only."""
     try:
-        raw = llm._generate_response(prompt)
+        raw = llm._generate_response(meta_prompt)
     except Exception as e:  # noqa: BLE001
         logger.warning(f"topic LLM error: {str(e)[:120]}")
         return None
     if not isinstance(raw, str) or raw.startswith("Error"):
         return None
     spec = _extract_json_object(raw)
-    if spec and _valid(spec):
+    if not spec:
+        return None
+    # Stage 2: dedicated, higher-quality script.
+    script = _write_script(str(spec.get("hook", "")), str(spec.get("subject", spec.get("title", ""))))
+    if not script:
+        return None
+    spec["script"] = script
+    if _valid(spec):
         spec["id"] = _slug(str(spec["title"]))
         return spec
     return None
